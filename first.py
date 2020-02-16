@@ -25,6 +25,8 @@ from gensim.models import Word2Vec
 from gensim.models import KeyedVectors
 from gensim.test.utils import get_tmpfile
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 ######################################################################
 # Load Data
 # ---------
@@ -46,60 +48,83 @@ from gensim.test.utils import get_tmpfile
 #    `here <https://download.pytorch.org/tutorial/hymenoptera_data.zip>`_
 #    and extract it to the current directory.
 
-# Data augmentation and normalization for training
-# Just normalization for validation
-data_transforms = {
-    'train': transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ]),
-    'val': transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ]),
-}
+def loadDataset(dataset_name = "hymenoptera"):
+    print("Loading dataset \"%s\"..." % (dataset_name))
+    # Data augmentation and normalization for training
+    # Just normalization for validation
+    data_transforms = {
+        'train': transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'val': transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    }
 
-data_dir = 'data/hymenoptera_data'
-image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x),
-                                          data_transforms[x])
-                  for x in ['train', 'val']}
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
-                                             shuffle=True, num_workers=4)
-              for x in ['train', 'val']}
-dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
+    if dataset_name == "hymenoptera":
+        data_dir = 'data/hymenoptera_data'
+        image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x),
+                                                  data_transforms[x])
+                          for x in ['train', 'val']}
+        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
+                                                     shuffle=True, num_workers=4)
+                      for x in ['train', 'val']}
+        dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 
-class_names = image_datasets['train'].classes
+        class_names = image_datasets['train'].classes
+    elif dataset_name == "cifar-10":
+        data_dir = 'data/cifar-10-batches-py'
+        image_datasets = {x: datasets.CIFAR10(data_dir,
+                                              train=(x=="train"),
+                                              transform=data_transforms[x])
+                          for x in ['train', 'val']}
+        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
+                                                     shuffle=True, num_workers=4)
+                      for x in ['train', 'val']}
+        dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 
-n_classes = len(class_names)
+        class_names = image_datasets['train'].classes
+    else:
+        raise Error("Unknown dataset!")
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("Datasets sizes: %s" % (str(dataset_sizes)))
+    print("# classes = %d ('%s')" % (len(class_names), "', '".join(class_names)))
+    print()
+
+    return dataloaders, dataset_sizes, class_names, len(class_names)
 
 ######################################################################
+# Load embeddings
 
-# Source: https://github.com/mmihaltz/word2vec-GoogleNews-vectors
-# Load pretrained model (since intermediate data is not included, the model cannot be refined with additional data)
-# embedding_model = Word2Vec.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True, norm_only=True)
-# embedding_model.save("embedding_model.model")
-# # embedding_model = Word2Vec.load("embedding_model.model")
+def loadEmbeddings(model_name = "glove-twitter-25"):
+    print("Loading embedding model \"%s\"..." % (model_name))
 
-em_path = "embedding_model.kv"
-if not os.path.isfile(em_path):
-    embeddings = api.load("glove-twitter-25").wv
-    class_embeddings = torch.Tensor(embeddings[class_names])
-    #embeddings.save(em_path)
-    torch.save(class_embeddings, em_path)
-else:
-    #embeddings = KeyedVectors.load(em_path, mmap='r')
-    class_embeddings = torch.load(em_path)
+    em_path = model_name+".kv"
+    if not os.path.isfile(em_path):
+        if model_name == "GoogleNews-vectors-negative300":
+            # Source: https://github.com/mmihaltz/word2vec-GoogleNews-vectors
+            # Load pretrained model (since intermediate data is not included, the model cannot be refined with additional data)
+            embeddings = KeyedVectors.load_word2vec_format(model_name + '.bin', binary=True).wv
+        else:
+            embeddings = api.load(model_name).wv
+        #embeddings.save(em_path)
+        class_embeddings = torch.Tensor(embeddings[class_names])
+        torch.save(class_embeddings, em_path)
+    else:
+        #embeddings = KeyedVectors.load(em_path, mmap='r')
+        class_embeddings = torch.load(em_path)
+    #class_embeddings = torch.Tensor(embeddings[class_names])
 
-#class_embeddings = torch.Tensor(embeddings[class_names])
+    print("Embeddings shape: %s" % (str(class_embeddings.shape)))
+    print()
 
-print(class_names)
-print(class_embeddings)
+    return class_embeddings
 
 ######################################################################
 # Training the model
@@ -226,8 +251,23 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 # Finetuning the convnet
 # ----------------------
 #
-# Load a pretrained model and reset final fully connected layer.
-#
+
+dataset = "hymenoptera"
+# dataset = "cifar-10"
+
+embeddings = "glove-twitter-25"
+# embeddings = "GoogleNews-vectors-negative300"
+######################################################################
+
+
+print()
+
+dataloaders, dataset_sizes, class_names, n_classes = loadDataset(dataset)
+
+class_embeddings = loadEmbeddings(embeddings)
+
+print(zip(class_names,class_embeddings))
+
 
 model_ft = models.resnet18(pretrained=True)
 
