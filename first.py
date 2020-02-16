@@ -259,6 +259,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 dataset = "cifar-10"
 
 embeddings = "glove-twitter-25"
+# embeddings = "glove-wiki-gigaword-100"
 # embeddings = "GoogleNews-vectors-negative300"
 ######################################################################
 

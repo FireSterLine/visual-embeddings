@@ -1,0 +1,2 @@
+emb_layer.load_state_dict({'weight': weights_matrix})
+similar_by_vector(vector, topn=1)
