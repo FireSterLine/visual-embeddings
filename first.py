@@ -3,6 +3,9 @@
 # Based on a script written by Sasank Chilamkurthy on BSD licence
 # Source: https://github.com/pytorch/tutorials/blob/master/beginner_source/transfer_learning_tutorial.py
 
+# The word embedding part was sourced from:
+#  Secondary https://github.com/kavgan/nlp-in-practice/blob/master/pre-trained-embeddings/Pre-trained%20embeddings.ipynb
+
 from __future__ import print_function, division
 
 import torch
@@ -17,7 +20,10 @@ import time
 import os
 import copy
 
-plt.ion()   # interactive mode
+import gensim.downloader as api
+from gensim.models import Word2Vec
+
+# plt.ion()   # interactive mode
 
 ######################################################################
 # Load Data
@@ -65,10 +71,27 @@ dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
                                              shuffle=True, num_workers=4)
               for x in ['train', 'val']}
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
+
 class_names = image_datasets['train'].classes
+
 n_classes = len(class_names)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+######################################################################
+
+# download the model and return as object ready for use
+embedding_model = api.load("glove-twitter-25")
+
+# Load pretrained model (since intermediate data is not included, the model cannot be refined with additional data)
+# embedding_model = Word2Vec.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True, norm_only=True)
+
+
+class_embeddings = torch.Tensor(embedding_model[class_names])
+# class_embeddings = embedding_model[class_names]
+
+print(class_names)
+print(class_embeddings)
 
 ######################################################################
 # Visualize a few images
@@ -95,7 +118,7 @@ inputs, classes = next(iter(dataloaders['train']))
 # Make a grid from batch
 out = torchvision.utils.make_grid(inputs)
 
-imshow(out, title=[class_names[x] for x in classes])
+# imshow(out, title=[class_names[x] for x in classes])
 
 
 ######################################################################
@@ -136,6 +159,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
             for inputs, labels in dataloaders[phase]:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
+                targets = class_embeddings[labels]#.to(device)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
@@ -144,8 +168,39 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
-                    loss = criterion(outputs, labels)
+
+
+                    # print()
+                    # print(class_embeddings.shape)
+                    # print(class_embeddings)
+                    #
+                    # # print()
+                    # # print(outputs.shape)
+                    # # print(targets.shape)
+                    #
+                    # print()
+                    # print(outputs)
+                    # print(targets)
+                    #
+                    # print()
+                    # print(outputs - targets)
+                    #
+                    # #print()
+                    # #dist = torch.norm(outputs[0] - targets, dim=1, p=None)
+                    # #print(dist)
+
+                    preds = torch.LongTensor([torch.norm(output - class_embeddings, dim=1, p=None).topk(1, largest=False)[1] for output in outputs])
+
+                    # print(torch.norm(outputs[0] - class_embeddings, dim=1, p=None))
+                    # print(torch.norm(outputs[1] - class_embeddings, dim=1, p=None))
+                    # print(torch.norm(outputs[2] - class_embeddings, dim=1, p=None))
+                    # print(torch.norm(outputs[3] - class_embeddings, dim=1, p=None))
+                    #
+                    # print(preds.shape)
+                    # print(labels.data.shape)
+
+                    # loss = torch.norm(outputs - targets, dim=1, p=None)
+                    loss = criterion(outputs, targets)
 
                     # backward + optimize only if in training phase
                     if phase == 'train':
@@ -225,15 +280,16 @@ model_ft = models.resnet18(pretrained=True)
 
 num_ftrs = model_ft.fc.in_features
 
-# 0. Simply change the output size:
-# model_ft.fc = nn.Linear(num_ftrs, n_classes)
 
-# 1. Add a second last fully-connected layer
-intermed = (n_classes+num_ftrs)//2
-model_ft.fc = nn.Sequential(
-    nn.Linear(num_ftrs, intermed),
-    nn.Linear(intermed, n_classes)
-)
+
+model_ft.fc = nn.Linear(num_ftrs, class_embeddings.shape[1])
+
+# TODO: Add a second last fully-connected layer
+# intermed = (n_classes+num_ftrs)//2
+# model_ft.fc = nn.Sequential(
+#     nn.Linear(num_ftrs, intermed)
+#     , embedding_layer
+# )
 
 # This allows to set the learning rate for different layers
 par_lrs = {
@@ -260,26 +316,27 @@ for i in par_lrs:
     if par_lrs[i]['lr'] == 0.0:
         for param in par_lrs[i]["params"]:
             param.requires_grad = False
-
-
 print()
-print([par_lrs[i] for i in par_lrs])
-
-#for param in model_ft.parameters():
-#    param.requires_grad = False
 
 
 model_ft = model_ft.to(device)
 
-criterion = nn.CrossEntropyLoss()
+# TODO Use that geometric softmax idea!
+# criterion = nn.CrossEntropyLoss()
+criterion = nn.MSELoss()
 
 # 0. optimize only laste layer's parameter
 # optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 
 # 1. optimize layers according to the settings (see a few lines above)
-optimizer_ft = optim.SGD([par_lrs[i] for i in par_lrs if par_lrs[i]['lr'] != 0.0],
-                     lr = 0.001,
-                     momentum = 0.9
+# TODO: switch back to SGD
+# optimizer_ft = optim.SGD([par_lrs[i] for i in par_lrs if par_lrs[i]['lr'] != 0.0],
+#                      lr = 0.001,
+#                      momentum = 0.9
+#                      # , weight_decay = 0.9
+#                  )
+optimizer_ft = optim.Adam([par_lrs[i] for i in par_lrs if par_lrs[i]['lr'] != 0.0],
+                     lr = 0.001
                      # , weight_decay = 0.9
                  )
 
@@ -300,7 +357,7 @@ model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler,
 ######################################################################
 #
 
-visualize_model(model_ft)
+# visualize_model(model_ft)
 
-plt.ioff()
-plt.show()
+# plt.ioff()
+# plt.show()
