@@ -27,6 +27,8 @@ from gensim.test.utils import get_tmpfile
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+print("GPU available: %d" % (torch.cuda.is_available()))
+
 ######################################################################
 # Load Data
 # ---------
@@ -270,7 +272,7 @@ dataloaders, dataset_sizes, class_names, n_classes = loadDataset(dataset)
 
 class_embeddings = loadEmbeddings(embeddings,dataset)
 
-print(zip(class_names,class_embeddings))
+# print(zip(class_names,class_embeddings))
 
 
 model_ft = models.resnet18(pretrained=True)
