@@ -17,3 +17,6 @@ We'll take a pre-trained object detection model, and tweak it by finetuning or f
 
 ## Some questions
 - Where do I get the visual embedding for object labels? It could be a visual embedding for word. Let's just start with *word2vec*, for example.
+=======
+# visual-embeddings
+object classification experiment
