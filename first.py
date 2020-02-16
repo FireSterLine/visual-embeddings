@@ -22,8 +22,8 @@ import copy
 
 import gensim.downloader as api
 from gensim.models import Word2Vec
-
-# plt.ion()   # interactive mode
+from gensim.models import KeyedVectors
+from gensim.test.utils import get_tmpfile
 
 ######################################################################
 # Load Data
@@ -80,46 +80,26 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 ######################################################################
 
-# download the model and return as object ready for use
-embedding_model = api.load("glove-twitter-25")
-
+# Source: https://github.com/mmihaltz/word2vec-GoogleNews-vectors
 # Load pretrained model (since intermediate data is not included, the model cannot be refined with additional data)
 # embedding_model = Word2Vec.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True, norm_only=True)
+# embedding_model.save("embedding_model.model")
+# # embedding_model = Word2Vec.load("embedding_model.model")
 
+em_path = "embedding_model.kv"
+if not os.path.isfile(em_path):
+    embeddings = api.load("glove-twitter-25").wv
+    class_embeddings = torch.Tensor(embeddings[class_names])
+    #embeddings.save(em_path)
+    torch.save(class_embeddings, em_path)
+else:
+    #embeddings = KeyedVectors.load(em_path, mmap='r')
+    class_embeddings = torch.load(em_path)
 
-class_embeddings = torch.Tensor(embedding_model[class_names])
-# class_embeddings = embedding_model[class_names]
+#class_embeddings = torch.Tensor(embeddings[class_names])
 
 print(class_names)
 print(class_embeddings)
-
-######################################################################
-# Visualize a few images
-# ^^^^^^^^^^^^^^^^^^^^^^
-# Let's visualize a few training images so as to understand the data
-# augmentations.
-
-def imshow(inp, title=None):
-    """Imshow for Tensor."""
-    inp = inp.numpy().transpose((1, 2, 0))
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    inp = std * inp + mean
-    inp = np.clip(inp, 0, 1)
-    plt.imshow(inp)
-    if title is not None:
-        plt.title(title)
-    plt.pause(0.001)  # pause a bit so that plots are updated
-
-
-# Get a batch of training data
-inputs, classes = next(iter(dataloaders['train']))
-
-# Make a grid from batch
-out = torchvision.utils.make_grid(inputs)
-
-# imshow(out, title=[class_names[x] for x in classes])
-
 
 ######################################################################
 # Training the model
@@ -169,6 +149,12 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
 
+                    # print()
+                    # print(class_embeddings.shape)
+                    # print(targets.shape)
+                    # print(outputs.shape)
+                    # print(outputs[0].shape)
+                    # print(torch.nn.functional.cosine_similarity(outputs[0].unsqueeze_(0), class_embeddings, dim=1))
 
                     # print()
                     # print(class_embeddings.shape)
@@ -190,6 +176,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     # #print(dist)
 
                     preds = torch.LongTensor([torch.norm(output - class_embeddings, dim=1, p=None).topk(1, largest=False)[1] for output in outputs])
+                    # preds = torch.LongTensor([torch.nn.functional.cosine_similarity(output.unsqueeze_(0), class_embeddings, dim=1).topk(1, largest=False)[1] for output in outputs])
 
                     # print(torch.norm(outputs[0] - class_embeddings, dim=1, p=None))
                     # print(torch.norm(outputs[1] - class_embeddings, dim=1, p=None))
@@ -234,40 +221,6 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model
-
-
-######################################################################
-# Visualizing the model predictions
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#
-# Generic function to display predictions for a few images
-#
-
-def visualize_model(model, num_images=6):
-    was_training = model.training
-    model.eval()
-    images_so_far = 0
-    fig = plt.figure()
-
-    with torch.no_grad():
-        for i, (inputs, labels) in enumerate(dataloaders['val']):
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-
-            for j in range(inputs.size()[0]):
-                images_so_far += 1
-                ax = plt.subplot(num_images//2, 2, images_so_far)
-                ax.axis('off')
-                ax.set_title('predicted: {}'.format(class_names[preds[j]]))
-                imshow(inputs.cpu().data[j])
-
-                if images_so_far == num_images:
-                    model.train(mode=was_training)
-                    return
-        model.train(mode=was_training)
 
 ######################################################################
 # Finetuning the convnet
@@ -324,6 +277,7 @@ model_ft = model_ft.to(device)
 # TODO Use that geometric softmax idea!
 # criterion = nn.CrossEntropyLoss()
 criterion = nn.MSELoss()
+# criterion = nn.CosineSimilarity()
 
 # 0. optimize only laste layer's parameter
 # optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
@@ -356,8 +310,3 @@ model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler,
 
 ######################################################################
 #
-
-# visualize_model(model_ft)
-
-# plt.ioff()
-# plt.show()
