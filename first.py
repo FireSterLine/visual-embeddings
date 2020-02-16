@@ -79,17 +79,20 @@ def loadDataset(dataset_name = "hymenoptera"):
 
         class_names = image_datasets['train'].classes
     elif dataset_name == "cifar-10":
-        data_dir = 'data/cifar-10-batches-py'
+        data_dir = 'data'
         image_datasets = {x: datasets.CIFAR10(data_dir,
-                                              train=(x=="train"),
-                                              transform=data_transforms[x])
+                                              train=(x=='train'),
+                                              transform=data_transforms[x],
+                                              download=True)
                           for x in ['train', 'val']}
+
         dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
                                                      shuffle=True, num_workers=4)
                       for x in ['train', 'val']}
         dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 
-        class_names = image_datasets['train'].classes
+        class_names = ["plane", "car", "bird", "cat",
+                        "deer", "dog", "frog", "horse", "ship", "truck"]
     else:
         raise Error("Unknown dataset!")
 
@@ -102,10 +105,10 @@ def loadDataset(dataset_name = "hymenoptera"):
 ######################################################################
 # Load embeddings
 
-def loadEmbeddings(model_name = "glove-twitter-25"):
+def loadEmbeddings(model_name = "glove-twitter-25", dataset_name = "hymenoptera"):
     print("Loading embedding model \"%s\"..." % (model_name))
 
-    em_path = model_name+".kv"
+    em_path = model_name+"-"+dataset_name+".kv"
     if not os.path.isfile(em_path):
         if model_name == "GoogleNews-vectors-negative300":
             # Source: https://github.com/mmihaltz/word2vec-GoogleNews-vectors
@@ -252,8 +255,8 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 # ----------------------
 #
 
-dataset = "hymenoptera"
-# dataset = "cifar-10"
+# dataset = "hymenoptera"
+dataset = "cifar-10"
 
 embeddings = "glove-twitter-25"
 # embeddings = "GoogleNews-vectors-negative300"
@@ -264,7 +267,7 @@ print()
 
 dataloaders, dataset_sizes, class_names, n_classes = loadDataset(dataset)
 
-class_embeddings = loadEmbeddings(embeddings)
+class_embeddings = loadEmbeddings(embeddings,dataset)
 
 print(zip(class_names,class_embeddings))
 
